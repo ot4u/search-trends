@@ -35,6 +35,7 @@ func main() {
 	)
 
 	registry := metrics.New()
+	registry.SetQueueCapacity(cfg.QueueSize)
 	stoplistStore := domainstoplist.NewStore(cfg.Stoplist)
 	window := trending.NewWindow(cfg.WindowSeconds, time.Now().UTC())
 	snapshotStore := cache.NewStore(cfg.WindowSeconds)
@@ -54,6 +55,7 @@ func main() {
 		Processor: processor,
 		QueueSize: cfg.QueueSize,
 		TickEvery: time.Second,
+		OnEnqueue: registry.SetQueueSize,
 	})
 	ingestService.Start()
 
