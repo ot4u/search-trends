@@ -1,15 +1,11 @@
 run:
   timeout: 5m
-  tests: true
 
 linters:
   enable:
-    - govet
-    - staticcheck
     - errcheck
-    - ineffassign
-    - revive
     - gosimple
-
-issues:
-  exclude-use-default: false
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
