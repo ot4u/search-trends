@@ -41,3 +41,11 @@ func (d *Detector) Count(query string) uint64 {
 func (d *Detector) Reset() {
 	clear(d.current)
 }
+
+func (d *Detector) NormalWeight() uint64 {
+	return d.normalWeight
+}
+
+func (d *Detector) IsDownweighted(weight uint64) bool {
+	return weight < d.normalWeight
+}

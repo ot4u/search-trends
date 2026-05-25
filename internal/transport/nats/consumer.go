@@ -88,7 +88,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer sub.Unsubscribe()
+	defer func() {
+		if err := sub.Unsubscribe(); err != nil {
+			c.logger.Warn("failed to unsubscribe nats consumer", logger.Err(err))
+		}
+	}()
 
 	for {
 		select {
@@ -121,6 +125,14 @@ func (c *Consumer) Run(ctx context.Context) error {
 
 			ack := func() error {
 				return message.Ack()
+			}
+
+			if c.metrics != nil {
+				eventTime := time.Now().UTC()
+				if !event.Timestamp.IsZero() {
+					eventTime = event.Timestamp.UTC()
+				}
+				c.metrics.SetConsumerLag(time.Since(eventTime))
 			}
 
 			if err := c.enqueuer.Enqueue(ctx, event, ack); err != nil {

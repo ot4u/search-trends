@@ -25,6 +25,7 @@ type Service struct {
 	queue     chan queuedEvent
 	tickEvery time.Duration
 	now       func() time.Time
+	onEnqueue func(queueSize int)
 
 	mu     sync.RWMutex
 	closed bool
@@ -37,6 +38,7 @@ type ServiceConfig struct {
 	QueueSize int
 	TickEvery time.Duration
 	Now       func() time.Time
+	OnEnqueue func(queueSize int)
 }
 
 func NewService(cfg ServiceConfig) *Service {
@@ -62,6 +64,7 @@ func NewService(cfg ServiceConfig) *Service {
 		queue:     make(chan queuedEvent, cfg.QueueSize),
 		tickEvery: cfg.TickEvery,
 		now:       cfg.Now,
+		onEnqueue: cfg.OnEnqueue,
 	}
 }
 
@@ -110,6 +113,9 @@ func (s *Service) Enqueue(ctx context.Context, event trending.Event, ack AckFunc
 
 	select {
 	case s.queue <- queuedEvent{event: event, ack: ack}:
+		if s.onEnqueue != nil {
+			s.onEnqueue(len(s.queue))
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

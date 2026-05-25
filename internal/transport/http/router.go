@@ -34,9 +34,9 @@ func NewRouter(deps Dependencies) nethttp.Handler {
 
 	router := chi.NewRouter()
 	router.Use(chimiddleware.RequestID)
-	router.Use(chimiddleware.RealIP)
 	router.Use(chimiddleware.Recoverer)
 	router.Use(loggingMiddleware(deps.Logger, deps.Metrics, deps.QueueSize))
+	router.Mount("/debug", chimiddleware.Profiler())
 
 	router.Get("/healthz", func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 		writeJSON(w, nethttp.StatusOK, map[string]string{"status": "ok"})

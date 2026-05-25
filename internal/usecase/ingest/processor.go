@@ -25,20 +25,22 @@ const (
 )
 
 type Result struct {
-	Accepted bool
-	Outcome  Outcome
-	Query    string
-	Weight   uint64
+	Accepted     bool
+	Outcome      Outcome
+	Query        string
+	Weight       uint64
+	Downweighted bool
 }
+
 type Observer interface {
 	ObserveProcessed(Result)
-	ObserveSnapshotRefresh(int)
+	ObserveSnapshotRefresh(duration time.Duration, uniqueQueries int)
 }
 
 type noopObserver struct{}
 
-func (noopObserver) ObserveProcessed(Result)    {}
-func (noopObserver) ObserveSnapshotRefresh(int) {}
+func (noopObserver) ObserveProcessed(Result) {}
+func (noopObserver) ObserveSnapshotRefresh(time.Duration, int) {}
 
 type SnapshotWriter interface {
 	Publish(generatedAt time.Time, windowSeconds int, snapshots map[int][]trending.Item)
@@ -161,6 +163,7 @@ func (p *Processor) ProcessAt(event trending.Event, now time.Time) Result {
 	}
 
 	weight := p.detector.Weight(normalized)
+	downweighted := p.detector.IsDownweighted(weight)
 	if !p.window.AddAt(eventTime, normalized, weight) {
 		result := Result{
 			Outcome: OutcomeIgnoredStale,
@@ -172,10 +175,11 @@ func (p *Processor) ProcessAt(event trending.Event, now time.Time) Result {
 	}
 
 	result := Result{
-		Accepted: true,
-		Outcome:  OutcomeAccepted,
-		Query:    normalized,
-		Weight:   weight,
+		Accepted:     true,
+		Outcome:      OutcomeAccepted,
+		Query:        normalized,
+		Weight:       weight,
+		Downweighted: downweighted,
 	}
 	p.observer.ObserveProcessed(result)
 	return result
@@ -199,6 +203,8 @@ func (p *Processor) WindowSeconds() int {
 }
 
 func (p *Processor) publishSnapshots(now time.Time) {
+	start := time.Now()
+
 	maxLimit := p.snapshotLimits[len(p.snapshotLimits)-1]
 	topMax := trending.BuildTopN(p.window.Counts(), maxLimit)
 	batch := make(map[int][]trending.Item, len(p.snapshotLimits))
@@ -215,7 +221,7 @@ func (p *Processor) publishSnapshots(now time.Time) {
 	}
 
 	p.snapshots.Publish(now.UTC(), p.window.WindowSeconds(), batch)
-	p.observer.ObserveSnapshotRefresh(len(batch))
+	p.observer.ObserveSnapshotRefresh(time.Since(start), p.window.UniqueCount())
 }
 
 func sanitizeLimits(limits []int) []int {
