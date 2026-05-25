@@ -1,20 +1,19 @@
-up:
-	docker compose up --build -d
+.PHONY: run test bench lint docker-up docker-down
 
-install:
-	go mod tidy
+run:
+	go run ./cmd/app
 
-stop:
-	docker compose stop
+test:
+	go test ./...
 
-down:
-	docker compose down
-
-test-unit:
-	go test -v -cover ./internal/usecase/...
-
-format:
-	go fmt ./...
+bench:
+	go test -bench=. -benchmem ./internal/...
 
 lint:
-	golangci-lint run --fix
+	golangci-lint run
+
+docker-up:
+	docker compose up --build -d
+
+docker-down:
+	docker compose down -v

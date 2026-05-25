@@ -1,0 +1,51 @@
+services:
+  app:
+    build:
+      context: .
+    depends_on:
+      - nats
+    environment:
+      HTTP_ADDR: ":8080"
+      LOG_LEVEL: "info"
+      NATS_URL: "nats://nats:4222"
+      NATS_STREAM: "search-events"
+      NATS_SUBJECT: "search.events"
+      NATS_DURABLE: "search-trends"
+      NATS_AUTO_PROVISION: "true"
+      QUEUE_SIZE: "65536"
+      MAX_UNIQUE_QUERIES: "200000"
+      SNAPSHOT_LIMITS: "5,10,25,50,100"
+      ANTIFRAUD_THRESHOLD_PER_SECOND: "20"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  nats:
+    image: nats:2.10-alpine
+    command:
+      - "-js"
+      - "-sd"
+      - "/data"
+      - "-m"
+      - "8222"
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats-data:/data
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  nats-data:
