@@ -32,8 +32,8 @@ type Metrics struct {
 	httpLatency           *prometheus.HistogramVec
 	natsMessages          *prometheus.CounterVec
 
-	mu                sync.Mutex
-	lastSnapshotAt    time.Time
+	mu             sync.Mutex
+	lastSnapshotAt time.Time
 }
 
 func New() *Metrics {

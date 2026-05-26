@@ -39,7 +39,7 @@ type Observer interface {
 
 type noopObserver struct{}
 
-func (noopObserver) ObserveProcessed(Result) {}
+func (noopObserver) ObserveProcessed(Result)                   {}
 func (noopObserver) ObserveSnapshotRefresh(time.Duration, int) {}
 
 type SnapshotWriter interface {
