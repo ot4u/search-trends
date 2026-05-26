@@ -1,0 +1,47 @@
+groups:
+  - name: search-trends
+    rules:
+      - alert: IngestQueueHighUsage
+        expr: |
+          search_trends_ingest_queue_capacity > 0
+          and (
+            search_trends_ingest_queue_size
+            / search_trends_ingest_queue_capacity
+          ) > 0.9
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ingest queue usage is above 90%
+          description: Queue depth is {{ $value | humanizePercentage }} of capacity.
+
+      - alert: SnapshotStale
+        expr: search_trends_snapshot_age_seconds > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Snapshot cache is stale
+          description: Last snapshot refresh was {{ $value }}s ago.
+
+      - alert: HTTPP99LatencyHigh
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(search_trends_http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 0.2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: HTTP p99 latency is above 200ms
+          description: HTTP p99 latency is {{ $value }}s.
+
+      - alert: NATSConsumerLagHigh
+        expr: search_trends_nats_consumer_lag_seconds > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: NATS consumer lag is high
+          description: Estimated consumer lag is {{ $value }}s.

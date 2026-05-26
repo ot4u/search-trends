@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: search-trends
+    orgId: 1
+    folder: Search Trends
+    type: file
+    disableDeletion: true
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
