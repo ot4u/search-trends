@@ -10,11 +10,10 @@ seed_nats() {
   echo "Seeding ${count} events into ${subject} via ${nats_url}"
   (
     cd "${ROOT_DIR}"
-    GOCACHE="${ROOT_DIR}/.cache/go-build" GOMODCACHE="${ROOT_DIR}/.cache/go-mod" \
-      go run ./tests/load/publisher \
-        --nats-url="${nats_url}" \
-        --subject="${subject}" \
-        --count="${count}"
+    go run ./tests/load/publisher \
+      --nats-url="${nats_url}" \
+      --subject="${subject}" \
+      --count="${count}"
   )
 }
 

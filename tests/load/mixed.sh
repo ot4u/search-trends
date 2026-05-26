@@ -15,8 +15,7 @@ DURATION="${DURATION:-30s}"
 seed_nats "${NATS_URL}" "${SUBJECT}" "${WARMUP_EVENTS}"
 wait_for_trending_data "${BASE_URL}" 30
 
-GOCACHE="${ROOT_DIR}/.cache/go-build" GOMODCACHE="${ROOT_DIR}/.cache/go-mod" \
-  go run ./tests/load/publisher \
+go run ./tests/load/publisher \
     --nats-url="${NATS_URL}" \
     --subject="${SUBJECT}" \
     --rate="${WRITE_RATE}" \
