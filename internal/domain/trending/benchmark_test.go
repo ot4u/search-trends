@@ -20,18 +20,20 @@ func BenchmarkAddEvent(b *testing.B) {
 
 func BenchmarkExpireBucket(b *testing.B) {
 	base := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC)
+	counts := make(map[string]uint64, 5_000)
+	for j := 0; j < 5_000; j++ {
+		counts["query-"+strconv.Itoa(j)] = 10
+	}
+
+	window := NewWindow(300, base)
+	target := base.Add(time.Second)
 
 	b.ReportAllocs()
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		window := NewWindow(300, base)
-		for j := 0; j < 5_000; j++ {
-			window.AddAt(base, "query-"+strconv.Itoa(j), 10)
-		}
-
-		b.StartTimer()
-		window.AdvanceTo(base.Add(time.Second))
-		b.StopTimer()
+		window.ResetFilledForTest(base, counts)
+		window.AdvanceTo(target)
 	}
 }
 

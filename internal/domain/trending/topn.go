@@ -1,40 +1,16 @@
 package trending
 
-import (
-	"container/heap"
-	"sort"
-)
-
 type heapItem struct {
 	query string
 	score uint64
 }
 
-type minHeap []heapItem
-
-func (h minHeap) Len() int { return len(h) }
-
-func (h minHeap) Less(i, j int) bool {
-	if h[i].score == h[j].score {
-		return h[i].query > h[j].query
+func lessHeap(a, b heapItem) bool {
+	if a.score == b.score {
+		return a.query > b.query
 	}
 
-	return h[i].score < h[j].score
-}
-
-func (h minHeap) Swap(i, j int) {
-	h[i], h[j] = h[j], h[i]
-}
-
-func (h *minHeap) Push(x any) {
-	*h = append(*h, x.(heapItem))
-}
-
-func (h *minHeap) Pop() any {
-	old := *h
-	item := old[len(old)-1]
-	*h = old[:len(old)-1]
-	return item
+	return a.score < b.score
 }
 
 func better(candidate, current heapItem) bool {
@@ -44,6 +20,45 @@ func better(candidate, current heapItem) bool {
 
 	return candidate.score > current.score
 }
+
+func siftDown(h []heapItem, i, n int) {
+	for {
+		smallest := i
+		left := 2*i + 1
+		right := left + 1
+
+		if left < n && lessHeap(h[left], h[smallest]) {
+			smallest = left
+		}
+		if right < n && lessHeap(h[right], h[smallest]) {
+			smallest = right
+		}
+		if smallest == i {
+			return
+		}
+
+		h[i], h[smallest] = h[smallest], h[i]
+		i = smallest
+	}
+}
+
+func initMinHeap(h []heapItem) {
+	for i := len(h)/2 - 1; i >= 0; i-- {
+		siftDown(h, i, len(h))
+	}
+}
+
+func popMin(h *[]heapItem) heapItem {
+	n := len(*h)
+	item := (*h)[0]
+	(*h)[0] = (*h)[n-1]
+	*h = (*h)[:n-1]
+	if len(*h) > 0 {
+		siftDown(*h, 0, len(*h))
+	}
+	return item
+}
+
 func BuildTopN(counts map[string]uint64, limit int) []Item {
 	if limit <= 0 || len(counts) == 0 {
 		return nil
@@ -53,41 +68,44 @@ func BuildTopN(counts map[string]uint64, limit int) []Item {
 		limit = len(counts)
 	}
 
-	h := make(minHeap, 0, limit)
+	h := make([]heapItem, 0, limit)
+	heapified := false
 
 	for query, score := range counts {
 		candidate := heapItem{query: query, score: score}
 
 		if len(h) < limit {
-			heap.Push(&h, candidate)
+			h = append(h, candidate)
 			continue
+		}
+
+		if !heapified {
+			initMinHeap(h)
+			heapified = true
 		}
 
 		if better(candidate, h[0]) {
 			h[0] = candidate
-			heap.Fix(&h, 0)
+			siftDown(h, 0, len(h))
 		}
 	}
 
-	items := make([]Item, 0, len(h))
-
-	for _, item := range h {
-		items = append(items, Item{
-			Query: item.query,
-			Score: item.score,
-		})
+	if len(h) == 0 {
+		return nil
 	}
 
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Score == items[j].Score {
-			return items[i].Query < items[j].Query
+	if !heapified {
+		initMinHeap(h)
+	}
+
+	items := make([]Item, len(h))
+	for i := len(h) - 1; i >= 0; i-- {
+		top := popMin(&h)
+		items[i] = Item{
+			Query: top.query,
+			Score: top.score,
+			Rank:  i + 1,
 		}
-
-		return items[i].Score > items[j].Score
-	})
-
-	for i := range items {
-		items[i].Rank = i + 1
 	}
 
 	return items

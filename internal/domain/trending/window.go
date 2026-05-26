@@ -103,6 +103,29 @@ func (w *Window) reset(targetSecond int64) {
 		w.buckets[i].second = targetSecond - int64(w.size-1-i)
 	}
 }
+
+// ResetFilledForTest готовит окно к бенчмарку истечения бакета:
+// данные лежат в buckets[0], курсор на последней ячейке, следующий AdvanceTo сдвигает на секунду
+// и вычищает как раз этот бакет из global.
+func (w *Window) ResetFilledForTest(now time.Time, counts map[string]uint64) {
+	sec := truncateToSecond(now).Unix()
+
+	if w.currentSecond == sec+1 && w.cursor == 0 {
+		w.currentSecond = sec
+		w.cursor = w.size - 1
+	} else {
+		w.reset(sec)
+		w.cursor = w.size - 1
+	}
+
+	clear(w.global)
+	clear(w.buckets[0].counts)
+
+	for query, score := range counts {
+		w.buckets[0].counts[query] = score
+		w.global[query] = score
+	}
+}
 func (w *Window) AddAt(ts time.Time, query string, weight uint64) bool {
 	if query == "" || weight == 0 {
 		return false
