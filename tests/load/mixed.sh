@@ -23,8 +23,8 @@ go run ./tests/load/publisher \
   >/dev/null 2>&1 &
 PUBLISHER_PID=$!
 
-sed "s|http://localhost:8080|${BASE_URL}|g" tests/load/read.targets \
-  | vegeta attack -rate="${READ_RATE}" -duration="${DURATION}" \
+sed "s|http://127.0.0.1:8080|${BASE_URL}|g" tests/load/read.targets \
+  | vegeta_attack "${READ_RATE}" "${DURATION}" \
   | vegeta report
 
 wait "${PUBLISHER_PID}"

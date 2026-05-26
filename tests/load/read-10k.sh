@@ -14,6 +14,6 @@ DURATION="${DURATION:-30s}"
 seed_nats "${NATS_URL}" "${SUBJECT}" "${SEED_EVENTS}"
 wait_for_trending_data "${BASE_URL}" 30
 
-sed "s|http://localhost:8080|${BASE_URL}|g" tests/load/read.targets \
-  | vegeta attack -rate="${RATE}" -duration="${DURATION}" \
+sed "s|http://127.0.0.1:8080|${BASE_URL}|g" tests/load/read.targets \
+  | vegeta_attack "${RATE}" "${DURATION}" \
   | vegeta report

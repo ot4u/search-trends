@@ -2,6 +2,40 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+ensure_vegeta() {
+  if command -v go >/dev/null 2>&1; then
+    local gobin
+    gobin="$(go env GOPATH 2>/dev/null)/bin"
+    if [[ -n "${gobin}" && -d "${gobin}" ]]; then
+      case ":${PATH}:" in
+        *":${gobin}:"*) ;;
+        *) export PATH="${PATH}:${gobin}" ;;
+      esac
+    fi
+  fi
+
+  if ! command -v vegeta >/dev/null 2>&1; then
+    echo "vegeta not found in PATH. Install with:" >&2
+    echo "  go install github.com/tsenart/vegeta/v12@latest" >&2
+    exit 127
+  fi
+}
+
+ensure_vegeta
+
+vegeta_attack() {
+  local rate="$1"
+  local duration="$2"
+  shift 2
+
+  vegeta attack \
+    -rate="${rate}" \
+    -duration="${duration}" \
+    -max-workers="${MAX_WORKERS:-2000}" \
+    -connections="${MAX_CONNECTIONS:-2000}" \
+    "$@"
+}
+
 seed_nats() {
   local nats_url="$1"
   local subject="$2"
