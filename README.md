@@ -66,7 +66,7 @@ make load-test   # нужен поднятый стек и установлен�
 }
 ```
 
-Подробнее — [docs/architecture.md](docs/architecture.md).
+Подробнее — [docs/developer/architecture.md](docs/developer/architecture.md).
 
 ---
 
@@ -97,7 +97,7 @@ make load-test   # нужен поднятый стек и установлен�
 - **всё в памяти, без базы** — иначе лишняя задержка ради данных, которые всё равно быстро устаревают;
 - **один писатель** — consumer только ставит события в очередь, окно редактирует одна горутина, без блокировок на горячем пути;
 - **кольцевое окно и общий счётчик** — быстрое добавление и построение топа без обхода трёхсот секундных ячеек;
-- **snapchots топа раз в секунду** — ответ по сети чаще всего чтение готового результата, а не пересчёт на каждый запрос;
+- **snapshots топа раз в секунду** — ответ по сети чаще всего чтение готового результата, а не пересчёт на каждый запрос;
 - **стоп-лист через копию карты** — проверка слова не тормозит приём событий;
 - **JetStream в NATS** — простой локальный запуск, достаточно для одного потребителя.
 
@@ -149,16 +149,26 @@ make load-test   # нужен поднятый стек и установлен�
 - ротация limit 5–100 — 100% успех, p99 **126 мс** (крупные ответы, редкие выбросы);
 - смешанный режим 5k чтений/с + 1k записей в NATS — 100% успех, p99 **11,7 мс**.
 
-Детали и выводы — [docs/benchmarks.md](docs/benchmarks.md), [docs/load_testing.md](docs/load_testing.md).
+Детали и выводы — [docs/developer/benchmarks.md](docs/developer/benchmarks.md), [docs/developer/load_testing.md](docs/developer/load_testing.md).
 
 ---
 
-## Документация
+## Документация и артефакты
 
-- [docs/architecture.md](docs/architecture.md) — устройство сервиса и компромиссы
-- [docs/benchmarks.md](docs/benchmarks.md) — бенчмарки домена
-- [docs/load_testing.md](docs/load_testing.md) — сценарии vegeta и результаты
-- [docs/monitoring.md](docs/monitoring.md) — Prometheus, Grafana, алерты, pprof
+Системный анализ:
+
+- [SRS](docs/system_analyst/srs.md) — требования к сервису, ограничения, интерфейсы и trade-offs
+- [OpenAPI](docs/system_analyst/openapi.yaml) — HTTP API
+- [AsyncAPI](docs/system_analyst/asyncapi.yaml) — NATS JetStream contract
+- [C4 Context](docs/system_analyst/context-diagram.puml) — контекстная диаграмма системы
+- [Sequence diagram](docs/system_analyst/sequence-diagram.puml) — сценарии приёма события и чтения Top-N
+
+Разработка и эксплуатация:
+
+- [docs/developer/architecture.md](docs/developer/architecture.md) — устройство сервиса и компромиссы
+- [docs/developer/benchmarks.md](docs/developer/benchmarks.md) — бенчмарки домена
+- [docs/developer/load_testing.md](docs/developer/load_testing.md) — сценарии vegeta и результаты
+- [docs/developer/monitoring.md](docs/developer/monitoring.md) — Prometheus, Grafana, алерты, pprof
 
 ---
 

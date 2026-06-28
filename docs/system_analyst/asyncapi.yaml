@@ -1,0 +1,138 @@
+asyncapi: 2.6.0
+info:
+  title: Search Trends Events API
+  version: 1.0.0
+  description: |
+    Асинхронный контракт для передачи поисковых событий в Search Trends.
+
+    Сервис выступает consumer'ом NATS JetStream: читает сообщения из subject
+    `search.events`, нормализует поисковый запрос, проверяет стоп-лист и
+    антифрод, затем обновляет in-memory окно популярности.
+
+    Подтверждение JetStream-сообщения выполняется после успешной постановки
+    события во внутреннюю очередь и принятия writer'ом. Сообщения с невалидным
+    JSON подтверждаются и отбрасываются.
+
+defaultContentType: application/json
+
+servers:
+  local:
+    url: nats://127.0.0.1:4222
+    protocol: nats
+    description: Локальный NATS JetStream.
+  docker:
+    url: nats://nats:4222
+    protocol: nats
+    description: NATS JetStream внутри docker-compose сети.
+
+channels:
+  search.events:
+    description: Subject входящих поисковых событий.
+    bindings:
+      nats:
+        x-jetstream:
+          stream: search-events
+          durable: search-trends
+          retention: limits
+          storage: file
+          maxAge: PT10M
+          ackPolicy: explicit
+          ackWait: PT30S
+          maxAckPending: 20000
+          fetchBatch: 256
+          fetchTimeout: PT1S
+          autoProvision: true
+    subscribe:
+      operationId: consumeSearchEvent
+      summary: Принять поисковое событие
+      description: |
+        Search Trends подписывается на subject и принимает события поиска.
+        `timestamp` используется для попадания события в нужную секунду
+        скользящего окна. Если поле отсутствует или равно zero time, сервис
+        использует текущее UTC-время обработки.
+
+        Событие игнорируется, если запрос пустой после нормализации, содержит
+        слово из стоп-листа, слишком старый для окна, слишком далеко в будущем
+        или превышен лимит уникальных запросов.
+      message:
+        $ref: '#/components/messages/SearchEvent'
+
+components:
+  messages:
+    SearchEvent:
+      name: SearchEvent
+      title: Событие поискового запроса
+      summary: Один пользовательский поисковый запрос.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SearchEventPayload'
+      examples:
+        - name: iphoneSearch
+          summary: Поисковый запрос с UUID request_id.
+          payload:
+            request_id: 8f4d6c4d-0d12-4d55-9f9d-1f1d6f8b7a11
+            query: купить айфон 17
+            timestamp: '2026-05-24T12:00:01Z'
+        - name: loadTestSearch
+          summary: Событие из нагрузочного publisher'а.
+          payload:
+            request_id: load-42
+            query: iphone 16
+            timestamp: '2026-05-24T12:00:01Z'
+
+  schemas:
+    SearchEventPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - request_id
+        - query
+        - timestamp
+      properties:
+        request_id:
+          type: string
+          description: |
+            Идентификатор события для логов и диагностики. В коде не валидируется
+            как UUID, поэтому допустима любая непустая строка.
+          minLength: 1
+          examples:
+            - 8f4d6c4d-0d12-4d55-9f9d-1f1d6f8b7a11
+            - load-42
+        query:
+          type: string
+          description: |
+            Исходный текст поискового запроса. Сервис приводит его к нижнему
+            регистру, заменяет пунктуацию и символы пробелами, удаляет intent-слова
+            `купить`, `заказать`, `новый`, `дешево`.
+          minLength: 1
+          examples:
+            - купить айфон 17
+            - macbook air
+        timestamp:
+          type: string
+          format: date-time
+          description: |
+            UTC-время события на стороне отправителя. События дальше допустимого
+            future skew игнорируются; будущие события в пределах допуска привязываются
+            к текущему времени обработки.
+          examples:
+            - '2026-05-24T12:00:01Z'
+
+    NatsConsumerOutcomes:
+      type: string
+      description: Значения outcome для метрики `search_trends_nats_messages_total`.
+      enum:
+        - invalid_json
+        - enqueue_error
+        - queued
+
+    ProcessingOutcomes:
+      type: string
+      description: Значения outcome для метрики `search_trends_events_total`.
+      enum:
+        - accepted
+        - ignored_empty
+        - ignored_stoplist
+        - ignored_stale
+        - ignored_future
+        - ignored_capacity

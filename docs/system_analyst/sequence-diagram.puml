@@ -1,0 +1,123 @@
+@startuml SearchTrendsSequence
+title Search Trends - обработка события и чтение Top-N
+
+autonumber
+skinparam backgroundColor #FFFFFF
+skinparam sequence {
+  ArrowColor #2F4F4F
+  LifeLineBorderColor #5B6B73
+  LifeLineBackgroundColor #EEF3F5
+  ParticipantBorderColor #5B6B73
+  ParticipantBackgroundColor #F7FAFC
+  ParticipantFontColor #1F2933
+  ActorBorderColor #5B6B73
+  ActorBackgroundColor #F7FAFC
+  BoxBorderColor #D7DEE2
+  BoxBackgroundColor #F8FAFB
+}
+skinparam note {
+  BorderColor #D7DEE2
+  BackgroundColor #FFF8DC
+}
+
+actor "Источник событий" as Publisher
+queue "NATS JetStream\nstream: search-events\nsubject: search.events" as NATS
+
+box "Search Trends" #F8FAFB
+participant "NATS Consumer\ninternal/transport/nats" as Consumer
+queue "Ingest Queue\nbounded channel" as Queue
+participant "Writer goroutine\ninternal/usecase/ingest" as Writer
+participant "Processor" as Processor
+participant "Stoplist" as Stoplist
+participant "Antifraud" as Antifraud
+database "Sliding Window\n300 x 1s buckets" as Window
+database "Snapshot Cache\natomic.Pointer" as Cache
+participant "HTTP API\ninternal/transport/http" as HTTP
+participant "Top Service" as TopService
+participant "Metrics" as Metrics
+end box
+
+actor "Клиент API" as Client
+
+== Прием поискового события ==
+
+Publisher -> NATS: Publish SearchEvent JSON
+note right of Publisher
+{
+  "request_id": "...",
+  "query": "купить айфон 17",
+  "timestamp": "2026-05-24T12:00:01Z"
+}
+end note
+
+loop Fetch batch every NATS_FETCH_TIMEOUT
+  Consumer -> NATS: PullSubscribe / Fetch(NATS_FETCH_BATCH)
+  NATS --> Consumer: JetStream messages
+end
+
+Consumer -> Consumer: json.Unmarshal(SearchEvent)
+
+alt invalid JSON
+  Consumer -> Metrics: ObserveNATS("invalid_json")
+  Consumer -> NATS: Ack()
+else valid JSON
+  Consumer -> Metrics: SetConsumerLag(now - event.timestamp)
+  Consumer -> Queue: Enqueue(event, ackFunc)
+  Consumer -> Metrics: ObserveNATS("queued")\nSetQueueSize(queueSize)
+end
+
+== Обработка writer'ом ==
+
+Writer -> Queue: receive queued event
+Writer -> Processor: ProcessAt(event, now)
+Processor -> Processor: NormalizeQuery(query)
+
+alt empty after normalization
+  Processor -> Metrics: ObserveProcessed("ignored_empty")
+else contains stop-list token
+  Processor -> Stoplist: ContainsAny(tokens)
+  Stoplist --> Processor: true
+  Processor -> Metrics: ObserveProcessed("ignored_stoplist")
+else stale / future / capacity rejected
+  Processor -> Window: validate event time and capacity
+  Window --> Processor: rejected
+  Processor -> Metrics: ObserveProcessed("ignored_stale|ignored_future|ignored_capacity")
+else accepted
+  Processor -> Stoplist: ContainsAny(tokens)
+  Stoplist --> Processor: false
+  Processor -> Antifraud: Weight(normalized query)
+  Antifraud --> Processor: weight, downweighted
+  Processor -> Window: AddAt(eventTime, normalized query, weight)
+  Window --> Processor: accepted
+  Processor -> Metrics: ObserveProcessed("accepted")
+  Writer -> NATS: Ack()
+end
+
+loop every 1 second
+  Writer -> Processor: Tick(now)
+  Processor -> Window: AdvanceTo(now)
+  Processor -> Antifraud: Reset()
+  Processor -> Window: Counts()
+  Processor -> Cache: Publish(generatedAt, windowSeconds, snapshots)
+  Processor -> Metrics: ObserveSnapshotRefresh(duration, uniqueQueries)
+end
+
+== Чтение Top-N ==
+
+Client -> HTTP: GET /api/v1/trending?limit=10
+HTTP -> HTTP: parse and validate limit
+HTTP -> TopService: GetSnapshot(limit)
+TopService -> Cache: AvailableLimits()
+Cache --> TopService: [5, 10, 25, 50, 100]
+TopService -> Cache: Get(chosenLimit)
+Cache --> TopService: TrendingSnapshot
+TopService --> HTTP: TrendingSnapshot
+HTTP --> Client: 200 application/json
+
+alt invalid or too large limit
+  HTTP --> Client: 400 {"error": "..."}
+else snapshots unavailable
+  HTTP --> Client: 503 {"error": "no snapshots available"}
+end
+
+@enduml

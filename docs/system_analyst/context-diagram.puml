@@ -1,0 +1,52 @@
+@startuml SearchTrendsC4Context
+title C4 Context - Search Trends
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 12
+skinparam defaultFontName Arial
+skinparam ArrowColor #2F4F4F
+skinparam rectangle {
+  BorderColor #5B6B73
+  BackgroundColor #F7FAFC
+  FontColor #1F2933
+}
+skinparam queue {
+  BorderColor #5B6B73
+  BackgroundColor #EEF6FF
+  FontColor #1F2933
+}
+skinparam actor {
+  BorderColor #5B6B73
+  BackgroundColor #F7FAFC
+  FontColor #1F2933
+}
+
+legend right
+  C4 level: System Context
+  Система в фокусе: Search Trends
+endlegend
+
+actor "Поисковый фронтенд / Виджет" as SearchWidget <<External System>>
+actor "Источник событий поиска" as SearchSource <<External System>>
+
+rectangle "Search Trends\n\nGo service\nIn-memory Top-N за скользящее окно\nHTTP API + NATS consumer" as SearchTrends <<Software System>>
+
+queue "NATS JetStream\n\nstream: search-events\nsubject: search.events" as NATS <<External System>>
+
+SearchSource --> NATS : Публикует события поиска\nJSON over NATS
+NATS --> SearchTrends : Доставляет события\nPullSubscribe, explicit ack
+
+SearchWidget --> SearchTrends : Запрашивает топ для виджета\nGET /api/v1/trending?limit=N
+
+note right of SearchTrends
+  Данные трендов не хранятся в БД.
+  Сервис держит окно и snapshot cache в памяти.
+end note
+
+note bottom of NATS
+  При auto-provision сервис создает stream:
+  storage=file, retention=limits, maxAge=10m.
+end note
+
+@enduml

@@ -1,0 +1,558 @@
+openapi: 3.1.0
+info:
+  title: Search Trends API
+  version: 1.0.0
+  description: HTTP API сервиса аналитики поисковых запросов в реальном времени.
+
+servers:
+  - url: http://localhost:8080
+    description: Локальный запуск приложения
+
+tags:
+  - name: Health
+    description: Проверка приложения.
+  - name: Trending
+    description: Чтение актуального Top-N поисковых запросов.
+  - name: Stoplist
+    description: Управление словами, которые исключаются из новых событий.
+  - name: Metrics
+    description: Prometheus-метрики приложения.
+  - name: Diagnostics
+    description: pprof endpoints для диагностики.
+
+paths:
+  /healthz:
+    get:
+      tags:
+        - Health
+      operationId: getHealth
+      summary: Проверить приложения
+      responses:
+        '200':
+          description: Приложение принимает HTTP-запросы.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                ok:
+                  value:
+                    status: ok
+
+  /api/v1/trending:
+    get:
+      tags:
+        - Trending
+      operationId: getTrending
+      summary: Получить Top-N поисковых запросов
+      description: Возвращает топ популярных запросов за 5 минут.
+      parameters:
+        - $ref: '#/components/parameters/TrendingLimit'
+      responses:
+        '200':
+          description: Снимок Top-N.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendingSnapshot'
+              examples:
+                top10:
+                  value:
+                    generated_at: '2026-05-24T12:00:01Z'
+                    window_seconds: 300
+                    limit: 10
+                    items:
+                      - query: iphone 16
+                        score: 1230
+                        rank: 1
+                      - query: macbook pro
+                        score: 980
+                        rank: 2
+        '400':
+          description: Некорректный `limit`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidLimit:
+                  value:
+                    error: invalid limit
+                nonPositiveLimit:
+                  value:
+                    error: limit must be positive
+                tooLarge:
+                  value:
+                    error: limit exceeds cached snapshot capacity
+        '503':
+          description: Снимки Top-N временно недоступны.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                noSnapshots:
+                  value:
+                    error: no snapshots available
+
+  /api/v1/stoplist:
+    get:
+      tags:
+        - Stoplist
+      operationId: listStoplist
+      summary: Получить стоп-лист
+      description: Возвращает отсортированный список слов, исключаемых из новых событий.
+      responses:
+        '200':
+          description: Текущий стоп-лист.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoplistResponse'
+              examples:
+                words:
+                  value:
+                    items:
+                      - casino
+                      - spam
+    post:
+      tags:
+        - Stoplist
+      operationId: addStoplistWord
+      summary: Добавить слово в стоп-лист
+      description: |
+        Слово нормализуется тем же правилом, что и текст запроса: приводится к нижнему
+        регистру, пунктуация и символы заменяются пробелами. После нормализации
+        значение должно быть одним токеном.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoplistWordRequest'
+            examples:
+              addSpam:
+                value:
+                  word: spam
+      responses:
+        '201':
+          description: Слово добавлено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoplistMutationResponse'
+              examples:
+                created:
+                  value:
+                    word: spam
+                    changed: true
+        '200':
+          description: Слово уже было в стоп-листе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoplistMutationResponse'
+              examples:
+                alreadyExists:
+                  value:
+                    word: spam
+                    changed: false
+        '400':
+          description: Невалидное тело запроса или слово.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidJson:
+                  value:
+                    error: invalid json body
+                emptyWord:
+                  value:
+                    error: stop-list word is empty after normalization
+                severalTokens:
+                  value:
+                    error: stop-list accepts a single normalized token
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/stoplist/{word}:
+    delete:
+      tags:
+        - Stoplist
+      operationId: deleteStoplistWord
+      summary: Удалить слово из стоп-листа
+      description: |
+        Удаляет слово после нормализации. Старые запросы, уже попавшие в окно
+        популярности, не удаляются мгновенно и исчезнут по мере истечения окна.
+      parameters:
+        - $ref: '#/components/parameters/StoplistWord'
+      responses:
+        '200':
+          description: Результат удаления.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoplistMutationResponse'
+              examples:
+                deleted:
+                  value:
+                    word: spam
+                    changed: true
+                absent:
+                  value:
+                    word: spam
+                    changed: false
+        '400':
+          description: Невалидное слово.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                emptyWord:
+                  value:
+                    error: stop-list word is empty after normalization
+                severalTokens:
+                  value:
+                    error: stop-list accepts a single normalized token
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /metrics:
+    get:
+      tags:
+        - Metrics
+      operationId: getMetrics
+      summary: Получить Prometheus-метрики
+      responses:
+        '200':
+          description: Метрики в Prometheus text exposition format.
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                metrics:
+                  value: |
+                    # HELP search_trends_events_total Total number of processed search events by outcome.
+                    # TYPE search_trends_events_total counter
+                    search_trends_events_total{outcome="accepted"} 42
+
+  /debug/vars:
+    get:
+      tags:
+        - Diagnostics
+      operationId: getDebugVars
+      summary: Получить expvar-переменные
+      responses:
+        '200':
+          description: JSON expvar.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /debug/pprof/:
+    get:
+      tags:
+        - Diagnostics
+      operationId: getPprofIndex
+      summary: Получить индекс pprof
+      responses:
+        '200':
+          description: HTML-страница со списком доступных профилей.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /debug/pprof/{profile}:
+    get:
+      tags:
+        - Diagnostics
+      operationId: getPprofProfile
+      summary: Получить pprof-профиль
+      parameters:
+        - name: profile
+          in: path
+          required: true
+          description: Имя профиля runtime.
+          schema:
+            type: string
+            enum:
+              - goroutine
+              - threadcreate
+              - mutex
+              - heap
+              - block
+              - allocs
+        - name: debug
+          in: query
+          required: false
+          description: Формат вывода pprof. `1` возвращает человекочитаемый текст.
+          schema:
+            type: integer
+            enum:
+              - 0
+              - 1
+            default: 0
+      responses:
+        '200':
+          description: Данные профиля.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+            text/plain:
+              schema:
+                type: string
+
+  /debug/pprof/cmdline:
+    get:
+      tags:
+        - Diagnostics
+      operationId: getPprofCmdline
+      summary: Получить командную строку процесса
+      responses:
+        '200':
+          description: Командная строка процесса.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /debug/pprof/profile:
+    get:
+      tags:
+        - Diagnostics
+      operationId: getPprofCpuProfile
+      summary: Снять CPU-профиль
+      parameters:
+        - name: seconds
+          in: query
+          required: false
+          description: Длительность сбора профиля в секундах.
+          schema:
+            type: integer
+            minimum: 1
+            default: 30
+      responses:
+        '200':
+          description: CPU-профиль pprof.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /debug/pprof/trace:
+    get:
+      tags:
+        - Diagnostics
+      operationId: getPprofTrace
+      summary: Снять runtime trace
+      parameters:
+        - name: seconds
+          in: query
+          required: false
+          description: Длительность сбора trace в секундах.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        '200':
+          description: Runtime trace.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /debug/pprof/symbol:
+    get:
+      tags:
+        - Diagnostics
+      operationId: getPprofSymbol
+      summary: Получить symbol lookup для pprof
+      parameters:
+        - name: symbol
+          in: query
+          required: false
+          description: Адреса или имена символов для lookup.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Результат symbol lookup.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  parameters:
+    TrendingLimit:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Количество элементов Top-N. По умолчанию `10`. Должно быть положительным
+        числом и не превышать максимальный настроенный snapshot limit
+        (`SNAPSHOT_LIMITS`, по умолчанию максимум `100`).
+      schema:
+        type: integer
+        minimum: 1
+        default: 10
+      example: 10
+
+    StoplistWord:
+      name: word
+      in: path
+      required: true
+      description: Слово для удаления. Значение URL-декодируется и нормализуется сервисом.
+      schema:
+        type: string
+        minLength: 1
+      example: spam
+
+  responses:
+    InternalServerError:
+      description: Внутренняя ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internal:
+              value:
+                error: internal server error
+
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Текст ошибки, возвращаемый сервисом.
+
+    TrendingSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - generated_at
+        - window_seconds
+        - limit
+        - items
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+          description: UTC-время генерации снимка.
+        window_seconds:
+          type: integer
+          minimum: 1
+          description: Размер скользящего окна в секундах.
+          examples:
+            - 300
+        limit:
+          type: integer
+          minimum: 1
+          description: Запрошенный или закэшированный размер Top-N.
+          examples:
+            - 10
+        items:
+          type: array
+          description: Элементы Top-N, отсортированные по убыванию score и рангу.
+          items:
+            $ref: '#/components/schemas/TrendingItem'
+
+    TrendingItem:
+      type: object
+      additionalProperties: false
+      required:
+        - query
+        - score
+        - rank
+      properties:
+        query:
+          type: string
+          description: Нормализованный поисковый запрос.
+          examples:
+            - iphone 16
+        score:
+          type: integer
+          minimum: 0
+          description: Накопленный вес запроса в текущем окне.
+          examples:
+            - 1230
+        rank:
+          type: integer
+          minimum: 1
+          description: Позиция элемента в выдаче Top-N.
+          examples:
+            - 1
+
+    StoplistResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          description: Отсортированный список слов стоп-листа.
+          items:
+            type: string
+          uniqueItems: true
+          examples:
+            - - casino
+              - spam
+
+    StoplistWordRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - word
+      properties:
+        word:
+          type: string
+          minLength: 1
+          description: Слово для добавления. После нормализации должно быть одним токеном.
+          examples:
+            - spam
+
+    StoplistMutationResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - word
+        - changed
+      properties:
+        word:
+          type: string
+          description: Нормализованное слово.
+          examples:
+            - spam
+        changed:
+          type: boolean
+          description: Показывает, изменился ли стоп-лист.
+          examples:
+            - true
